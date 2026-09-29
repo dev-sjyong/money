@@ -1,0 +1,47 @@
+\set ON_ERROR_STOP on
+begin;
+create schema repayment_test;
+create function repayment_test.ok(v boolean,label text) returns void language plpgsql as $$ begin if v is distinct from true then raise exception 'FAIL: %',label; end if; raise notice 'PASS: %',label; end $$;
+create function repayment_test.reject(q text,label text) returns void language plpgsql as $$ begin begin execute q; exception when others then raise notice 'PASS rejected: % [%]',label,sqlerrm; return; end; raise exception 'FAIL accepted: %',label; end $$;
+grant usage on schema repayment_test to authenticated,anon;
+grant execute on all functions in schema repayment_test to authenticated,anon;
+insert into auth.users(id) values('55555555-5555-4555-8555-555555555555'),('66666666-6666-4666-8666-666666666666'),('77777777-7777-4777-8777-777777777777');
+set local role authenticated;
+select set_config('request.jwt.claim.sub','55555555-5555-4555-8555-555555555555',true);
+do $$ declare h uuid; other_h uuid; plan uuid:=gen_random_uuid(); plan2 uuid:=gen_random_uuid(); rows jsonb; bad jsonb; token uuid;
+begin
+ h:=public.create_household('변제 테스트');
+ rows:=jsonb_build_array(jsonb_build_object('id',gen_random_uuid(),'due_date','2027-01-31','amount','9007199254740993','payments','[]'::jsonb),jsonb_build_object('id',gen_random_uuid(),'due_date','2027-02-28','amount','700000','payments',jsonb_build_array(jsonb_build_object('id',gen_random_uuid(),'date','2020-01-01','amount','100000'),jsonb_build_object('id',gen_random_uuid(),'date','2020-01-02','amount','200000'))));
+ perform public.save_repayment_plan(h,plan,0,'본인','메모',rows,false);
+ perform public.save_repayment_plan(h,plan2,0,'배우자','',jsonb_build_array(jsonb_build_object('id',gen_random_uuid(),'due_date','2028-12-25','amount','500000','payments','[]'::jsonb)),false);
+ perform repayment_test.ok(jsonb_array_length(public.get_repayment_plans(h))=2,'two independent schedules');
+ perform repayment_test.ok((select repayment_plans.rows->0->>'amount'='9007199254740993' and jsonb_array_length(repayment_plans.rows->1->'payments')=2 from public.repayment_plans where id=plan),'precision and partial payments preserved');
+ perform repayment_test.ok((select count(*)=0 from public.transactions where household_id=h),'schedule does not create ledger transactions');
+ perform public.save_repayment_plan(h,plan,1,'본인 수정','',rows,false);
+ perform repayment_test.ok((select revision=2 from public.repayment_plans where id=plan),'revision increments');
+ perform repayment_test.reject(format('select public.save_repayment_plan(%L,%L,1,%L,%L,%L,false)',h,plan,'stale','',rows),'stale version rejected');
+ perform repayment_test.ok((select name='본인 수정' and revision=2 from public.repayment_plans where id=plan),'conflict leaves data intact');
+ perform repayment_test.reject(format('select public.save_repayment_plan(%L,%L,0,%L,%L,%L,false)',h,plan,'duplicate','',rows),'duplicate create rejected');
+ perform repayment_test.reject(format('select public.save_repayment_plan(%L,%L,0,%L,%L,%L,false)',h,gen_random_uuid(),'','',rows),'empty name rejected');
+ foreach bad in array array['[]'::jsonb,'null'::jsonb,'{}'::jsonb,jsonb_build_array(rows->0,rows->0),jsonb_set(rows,'{0,amount}','"-1"'),jsonb_set(rows,'{0,amount}','"0"'),jsonb_set(rows,'{0,amount}','"1.2"'),jsonb_set(rows,'{0,amount}','"9223372036854775808"'),jsonb_set(rows,'{0,amount}','12'),jsonb_set(rows,'{0,due_date}','"2027-02-30"'),jsonb_set(rows,'{0,due_date}','null'),jsonb_set(rows,'{0,payments}','null'),jsonb_set(rows,'{1,payments,0,date}','"2199-12-31"'),jsonb_set(rows,'{1,payments,0,amount}','"800000"'),jsonb_set(rows,'{1,payments,1,id}',rows->1->'payments'->0->'id')] loop
+  perform repayment_test.reject(format('select public.save_repayment_plan(%L,%L,2,%L,%L,%L,false)',h,plan,'invalid','',bad),'invalid schedule rejected');
+ end loop;
+ perform repayment_test.ok((select revision=2 from public.repayment_plans where id=plan),'invalid updates atomic');
+ perform repayment_test.reject(format('update public.repayment_plans set name=%L where id=%L','bypass',plan),'direct table write rejected');
+ token:=public.create_invite(h);
+ perform set_config('request.jwt.claim.sub','66666666-6666-4666-8666-666666666666',true);
+ perform public.accept_invite(token);
+ perform public.save_repayment_plan(h,plan,2,'본인 수정','구성원 변경',rows,true);
+ perform repayment_test.ok((select archived and revision=3 from public.repayment_plans where id=plan),'member can update and archive');
+ perform public.save_repayment_plan(h,plan,3,'본인 수정','',rows,false);
+ perform repayment_test.ok((select not archived from public.repayment_plans where id=plan),'unarchive preserved schedule');
+ perform set_config('request.jwt.claim.sub','77777777-7777-4777-8777-777777777777',true);
+ other_h:=public.create_household('다른 가계부');
+ perform repayment_test.ok(public.get_repayment_plans(h)='[]'::jsonb,'outsider RLS read isolated');
+ perform repayment_test.reject(format('select public.save_repayment_plan(%L,%L,4,%L,%L,%L,false)',h,plan,'outsider','',rows),'outsider write rejected');
+ perform repayment_test.reject(format('select public.save_repayment_plan(%L,%L,4,%L,%L,%L,false)',other_h,plan,'hijack','',rows),'cross household ID hijack rejected');
+end $$;
+set local role anon;
+select repayment_test.reject('select public.get_repayment_plans(gen_random_uuid())','anonymous read denied');
+select repayment_test.reject('select public.save_repayment_plan(gen_random_uuid(),gen_random_uuid(),0,''anon'','''',''[]'',false)','anonymous write denied');
+rollback;

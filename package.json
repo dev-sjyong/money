@@ -9,7 +9,7 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt typecheck",
-    "test": "node --import tsx --test tests/accounting.test.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
     "test:db": "bash tests/run-db.sh",
     "test:ui": "playwright test",
     "format": "prettier --write app tests/browser tests/accounting.test.ts *.ts *.json"

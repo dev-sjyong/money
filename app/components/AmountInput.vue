@@ -5,12 +5,19 @@ const props = withDefaults(defineProps<{ modelValue: string; label?: string; qui
   quick: false,
 })
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const editingValue = ref('')
 const focused = ref(false),
   error = ref('')
-const shown = computed(() => (focused.value ? props.modelValue : displayAmount(props.modelValue)))
+const shown = computed(() => (focused.value ? editingValue.value : displayAmount(props.modelValue)))
+function focus(event: FocusEvent) {
+  // Keep the displayed text stable while the user selects or replaces it.
+  editingValue.value = (event.target as HTMLInputElement).value
+  focused.value = true
+}
 function input(event: Event) {
   error.value = ''
-  emit('update:modelValue', normalizeAmountInput((event.target as HTMLInputElement).value))
+  editingValue.value = (event.target as HTMLInputElement).value
+  emit('update:modelValue', normalizeAmountInput(editingValue.value))
 }
 function add(step: bigint) {
   try {
@@ -39,7 +46,7 @@ function clear() {
       placeholder="0"
       :aria-label="label"
       @input="input"
-      @focus="focused = true"
+      @focus="focus"
       @blur="focused = false"
     />
     <div v-if="quick" class="quick-amounts" aria-label="빠른 금액 입력">

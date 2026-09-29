@@ -1636,3 +1636,120 @@ footer > span:last-child {
     padding: 16px 10px;
   }
 }
+
+/* Variable repayment schedules */
+.repayment-editor fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.repayment-editor .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.repayment-editor label {
+  display: grid;
+  gap: 8px;
+}
+.repayment-bulk,
+.repayment-row {
+  margin: 24px 0;
+  padding: 20px;
+  border: 1px solid var(--border, #dce3d9);
+  border-radius: 12px;
+}
+.repayment-row-heading,
+.repayment-actions,
+.repayment-payments li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.repayment-row-heading h2,
+.repayment-row-heading h3 {
+  margin: 0;
+}
+.repayment-row-heading {
+  margin-bottom: 18px;
+}
+.repayment-payment {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #dce3d9;
+}
+.repayment-actions {
+  justify-content: flex-start;
+  margin-top: 16px;
+}
+.repayment-payments {
+  padding: 0;
+  list-style: none;
+}
+.repayment-check {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+}
+.repayment-check input {
+  width: 20px;
+  min-height: 20px;
+}
+.repayment-save {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 18px 0;
+  background: var(--paper, #fff);
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+.repayment-card {
+  margin-top: 20px;
+}
+.repayment-note {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.repayment-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+.repayment-metrics dt {
+  color: #6b766c;
+  font-size: 13px;
+}
+.repayment-metrics dd {
+  margin: 8px 0 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.repayment-editor input {
+  min-width: 0;
+  width: 100%;
+}
+@media (max-width: 600px) {
+  .repayment-editor .form-grid,
+  .repayment-metrics {
+    grid-template-columns: 1fr;
+  }
+  .repayment-bulk,
+  .repayment-row {
+    padding: 14px;
+  }
+  .repayment-save {
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  .repayment-save .button {
+    flex: 1;
+  }
+  .repayment-row-heading h2 {
+    overflow-wrap: anywhere;
+    max-width: 100%;
+  }
+}
