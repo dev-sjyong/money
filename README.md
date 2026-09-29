@@ -13,6 +13,7 @@ Nuxt 4 + Vue 3 + TypeScript + Supabase Auth/PostgreSQL/RLS/RPC로 구현한 수�
 - 월별 예산, 하위 계정 지출 포함, 중첩 예산 중복 제거
 - 대시보드, 월별 손익, 자산/부채, 월말 순자산 추이
 - 소유자와 구성원 총 2명, 일회용 24시간 초대 코드
+- 개인회생 일정: 사람별 가변 변제금·종료일, 부분 납부/선납 기록, 남은 회차·금액·미납액
 
 ## 실행
 
@@ -30,7 +31,7 @@ npm run dev
 ## Supabase 연결
 
 1. 새 Supabase 프로젝트를 준비합니다(PostgreSQL 15 이상).
-2. SQL Editor 또는 Supabase migration 도구에서 `supabase/migrations/202609290001_ledger.sql`, `supabase/migrations/202609290002_transaction_history.sql`을 순서대로 실행합니다. 이미 적용된 migration은 중복 실행하지 않습니다.
+2. SQL Editor 또는 Supabase migration 도구에서 `supabase/migrations/202609290001_ledger.sql`, `supabase/migrations/202609290002_transaction_history.sql`, `supabase/migrations/202609300003_repayment.sql`을 순서대로 실행합니다. 이미 적용된 migration은 중복 실행하지 않습니다.
 3. Auth에서 Email provider를 활성화합니다. 이메일 확인이 켜져 있으면 수신한 확인 링크를 누른 후 로그인합니다.
 4. Auth URL Configuration의 Site URL을 서비스 도메인(개발 시 localhost 주소)으로 설정합니다. 필요한 Redirect URL도 등록합니다.
 5. 프로젝트 URL과 공개 키를 `.env`의 `NUXT_PUBLIC_SUPABASE_URL`, `NUXT_PUBLIC_SUPABASE_ANON_KEY`에 입력합니다.
@@ -45,6 +46,20 @@ npm run dev
 도입 당시 존재하던 거래는 '이력 기록 시작' 스냅샷이 남습니다. 도입 전 수정 과정이나 이미 영구 삭제된 거래는 복원되지 않습니다. 이후 삭제 거래는 소유자가 휴지통에서 복구할 수 있으며, 자동 만료나 영구 삭제 기능은 추가하지 않았습니다. 복구 대상에 보관 계정이 있으면 계정을 먼저 복구해야 합니다.
 
 배포 후 거래 생성 → 수정 → 이력 확인 → 삭제 → 휴지통 복구 → 잔액 확인, 거래 복사 → 오늘 날짜·원본 유지 확인을 수행하세요. 로컬 검증 결과는 [고도화 기록](docs/ENHANCEMENTS.md)에 있습니다.
+
+## 개인회생 일정 사용 방법
+
+001·002가 적용된 기존 서비스에는 **[003 SQL](supabase/migrations/202609300003_repayment.sql)만** 먼저 실행한 뒤 새 코드를 배포합니다. 002가 아직 없다면 002 → 003 순서로 적용하세요. 테스트용 bootstrap을 운영 DB에 실행하지 않습니다.
+
+1. **개인회생 일정 → 변제 일정 추가**에서 이름/별칭을 입력합니다.
+2. 같은 변제금이 적용되는 시작 월·마지막 월·매월 납부일·금액을 입력하고 **기간 추가**를 누릅니다. 금액이 바뀌는 기간은 나누어 추가하세요.
+3. 개별 회차의 예정일/금액을 수정할 수 있습니다. 해당 월에 없는 날짜(예: 2월 31일)는 말일로 생성됩니다.
+4. 이미 낸 금액이나 매월 납부액은 해당 회차의 **납부 기록 추가**에서 실제 날짜와 금액을 입력합니다. 여러 번 나누어 내거나 선납한 기록도 가능합니다.
+5. **일정 저장**을 눌러 전체 변경을 저장하고, 배우자 계획도 별도로 등록합니다.
+
+모든 회차를 입력하면 전체 변제계획을 볼 수 있고, 남은 회차만 입력하면 입력 시점 이후의 일정만 관리합니다. 화면의 회차 번호는 등록된 일정의 날짜 순서입니다. 종료 예정일은 마지막 등록 회차입니다. 실제 납부 기록과 비교해 잔여액을 계산하며 면책 여부를 판정하지 않습니다.
+
+이 화면의 납부 기록은 **회계 원장과 별도**입니다. 거래·잔액·손익을 자동 변경하지 않습니다. 두 구성원 모두 일정/납부 기록을 편집할 수 있고, 보관한 계획은 합계에서 제외됩니다. 잘못 적은 납부는 삭제 확인 후 다시 입력합니다. 다른 곳에서 수정한 계획을 덮어쓰려 하면 차단되며 입력은 유지됩니다.
 
 ## Vercel 배포 준비
 
@@ -73,9 +88,12 @@ psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202609290001
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/history-baseline.sql
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202609290002_transaction_history.sql
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/history.sql
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202609300003_repayment.sql
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/repayment.sql
 TEST_DATABASE_URL="$TEST_DATABASE_URL" npm run test:db
 TEST_DATABASE_URL="$TEST_DATABASE_URL" python3 tests/concurrency.py
 TEST_DATABASE_URL="$TEST_DATABASE_URL" python3 tests/history-concurrency.py
+TEST_DATABASE_URL="$TEST_DATABASE_URL" python3 tests/repayment-concurrency.py
 ```
 
 브라우저 테스트는 실제 앱과 Supabase HTTP 응답 fixture를 사용합니다. 실제 이메일/JWT/PostgREST 연동을 통과했다는 의미는 아닙니다.
