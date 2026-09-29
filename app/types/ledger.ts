@@ -66,3 +66,33 @@ export const kindLabels: Record<TransactionKind, string> = {
   loan: '대출상환',
   journal: '직접분개',
 }
+
+export type HistoryAction = 'BASELINE' | 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE'
+export interface HistorySnapshot extends Transaction {
+  created_at: string
+  lines: (Line & { account_name?: string })[]
+}
+export interface TransactionHistory {
+  id: string
+  household_id: string
+  transaction_id: string
+  action: HistoryAction
+  actor_id: string | null
+  before_snapshot: HistorySnapshot | null
+  after_snapshot: HistorySnapshot | null
+  created_at: string
+}
+export interface TrashTransaction {
+  transaction_id: string
+  household_id: string
+  snapshot: HistorySnapshot
+  deleted_by: string
+  deleted_at: string
+}
+export const historyLabels: Record<HistoryAction, string> = {
+  BASELINE: '이력 기능 도입 시점',
+  CREATE: '거래 등록',
+  UPDATE: '거래 수정',
+  DELETE: '휴지통 이동',
+  RESTORE: '거래 복구',
+}

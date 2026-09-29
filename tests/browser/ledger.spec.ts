@@ -1,6 +1,14 @@
 import { test, expect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
-import type { Account, Household, Snapshot, Transaction } from '../../app/types/ledger'
+import type {
+  Account,
+  Household,
+  Snapshot,
+  Transaction,
+  TransactionHistory,
+  TrashTransaction,
+  HistorySnapshot,
+} from '../../app/types/ledger'
 import { today, validateLines } from '../../app/utils/accounting'
 // Browser tests isolate UI behavior with an HTTP Supabase contract fixture.
 // Database guarantees are independently exercised against real PostgreSQL.
@@ -20,6 +28,34 @@ test('complete household journey, accounting inputs, reports, persistence reload
   }
   let households: Household[] = []
   let state: Snapshot = { accounts: [], transactions: [], budgets: [], members: [] }
+  const history: TransactionHistory[] = []
+  let trash: TrashTransaction[] = []
+  function snapshot(t: Transaction): HistorySnapshot {
+    return {
+      ...structuredClone(t),
+      created_at: t.updated_at,
+      lines: t.lines.map((l) => ({
+        ...l,
+        account_name: state.accounts.find((a) => a.id === l.account_id)?.name,
+      })),
+    }
+  }
+  function audit(
+    action: TransactionHistory['action'],
+    before: HistorySnapshot | null,
+    after: HistorySnapshot | null,
+  ) {
+    history.unshift({
+      id: String(history.length + 1),
+      household_id: hid,
+      transaction_id: (after ?? before)!.id,
+      action,
+      actor_id: uid,
+      before_snapshot: before,
+      after_snapshot: after,
+      created_at: new Date().toISOString(),
+    })
+  }
   const calls: { name: string; args: Record<string, unknown> }[] = []
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
@@ -69,7 +105,17 @@ test('complete household journey, accounting inputs, reports, persistence reload
     else if (url.pathname.includes('/rpc/')) {
       const name = url.pathname.split('/').pop()!
       calls.push({ name, args })
-      if (name === 'ledger_snapshot') result = state
+      if (name === 'get_transaction_history')
+        result = history.filter((h) => h.transaction_id === args.p_transaction)
+      else if (name === 'get_transaction_trash') result = trash
+      else if (name === 'restore_transaction') {
+        const item = trash.find((t) => t.transaction_id === args.p_id)!
+        const restored = { ...structuredClone(item.snapshot), updated_at: new Date().toISOString() }
+        state.transactions.unshift(restored)
+        audit('RESTORE', item.snapshot, snapshot(restored))
+        trash = trash.filter((t) => t.transaction_id !== args.p_id)
+        result = args.p_id
+      } else if (name === 'ledger_snapshot') result = state
       else if (name === 'create_household') {
         households = [{ id: hid, name: args.p_name, created_by: uid }]
         seed()
@@ -117,6 +163,7 @@ test('complete household journey, accounting inputs, reports, persistence reload
           lines,
         }
         state.transactions.unshift(t)
+        audit('CREATE', null, snapshot(t))
         result = t.id
       } else if (name === 'create_transaction') {
         validateLines(args.p_lines)
@@ -131,8 +178,10 @@ test('complete household journey, accounting inputs, reports, persistence reload
           is_opening: false,
           lines: args.p_lines,
         })
+        audit('CREATE', null, snapshot(state.transactions[0]!))
         result = args.p_id
       } else if (name === 'update_transaction') {
+        const before = snapshot(state.transactions.find((t) => t.id === args.p_id)!)
         validateLines(args.p_lines)
         Object.assign(
           state.transactions.find((t) => t.id === args.p_id)!,
@@ -144,9 +193,19 @@ test('complete household journey, accounting inputs, reports, persistence reload
             updated_at: new Date().toISOString(),
           },
         )
-      } else if (name === 'delete_transaction')
+        audit('UPDATE', before, snapshot(state.transactions.find((t) => t.id === args.p_id)!))
+      } else if (name === 'delete_transaction') {
+        const before = snapshot(state.transactions.find((t) => t.id === args.p_id)!)
+        trash.unshift({
+          transaction_id: args.p_id,
+          household_id: hid,
+          snapshot: before,
+          deleted_by: uid,
+          deleted_at: new Date().toISOString(),
+        })
+        audit('DELETE', before, null)
         state.transactions = state.transactions.filter((t) => t.id !== args.p_id)
-      else if (name === 'save_budget') {
+      } else if (name === 'save_budget') {
         state.budgets = state.budgets.filter((b) => b.account_id !== args.p_account)
         state.budgets.push({
           id: randomUUID(),
@@ -233,13 +292,13 @@ test('complete household journey, accounting inputs, reports, persistence reload
   await expect(page.locator('.loading-bar')).toHaveCount(0)
   await expect(page.locator('.budget-card')).toContainText('530,000')
   await page.screenshot({
-    path: 'docs/dashboard-desktop.png',
+    path: 'test-results/dashboard-desktop.png',
     fullPage: true,
     animations: 'disabled',
   })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.screenshot({
-    path: 'docs/dashboard-mobile.png',
+    path: 'test-results/dashboard-mobile.png',
     fullPage: true,
     animations: 'disabled',
   })
@@ -258,21 +317,82 @@ test('complete household journey, accounting inputs, reports, persistence reload
   await page.getByRole('button', { name: '수정 저장 →' }).click()
   await expect(page.getByRole('link', { name: '시장 장보기 수정', exact: true })).toBeVisible()
   await page.getByRole('link', { name: '시장 장보기 수정', exact: true }).click()
+  await expect(page.getByRole('region', { name: '거래 변경 이력' })).toContainText('거래 수정')
+  await page.locator('.history-list summary').filter({ hasText: '거래 수정' }).click()
+  await expect(page.locator('.history-list details[open] .history-comparison')).toContainText(
+    '시장 장보기 수정',
+  )
   await page.getByRole('button', { name: '거래 삭제', exact: true }).click()
   await page.getByRole('button', { name: '삭제 확인' }).click()
   await expect(page.getByRole('link', { name: '시장 장보기 수정', exact: true })).toHaveCount(0)
+  await page.getByRole('link', { name: '휴지통', exact: true }).click()
+  await expect(page.locator('.trash-item')).toContainText('시장 장보기 수정')
+  await page.getByRole('button', { name: '복구', exact: true }).click()
+  await page.getByRole('button', { name: '복구 확인', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('거래를 복구했어요')
+  await expect(page.locator('.trash-item')).toHaveCount(0)
+  await page.goto('/transactions')
+  await page.getByRole('link', { name: '시장 장보기 수정', exact: true }).click()
+  await expect(page.getByRole('region', { name: '거래 변경 이력' })).toContainText('거래 복구')
+  const original = state.transactions.find((t) => t.description === '함께 먹은 저녁')!
+  original.transaction_date = '2020-01-01'
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`/transactions/new?copy=${original.id}`)
+  await expect(page.getByLabel('사용처 / 설명')).toHaveValue('함께 먹은 저녁')
+  await expect(page.getByLabel('날짜', { exact: true })).toHaveValue(today())
+  await expect(page.getByLabel('금액', { exact: true })).toHaveValue('50,000')
+  await page.getByRole('button', { name: '＋1천', exact: true }).click()
+  await expect(page.getByLabel('금액', { exact: true })).toHaveValue('51,000')
+  await page.getByLabel('사용처 / 설명').fill('저녁 복사')
+  await page.screenshot({ path: 'docs/mobile-copy.png', fullPage: true, animations: 'disabled' })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  )
+  expect(await page.getByLabel('금액', { exact: true }).getAttribute('inputmode')).toBe('numeric')
+  await page.getByRole('button', { name: '거래 저장 →' }).click()
+  await expect(page.getByRole('link', { name: '저녁 복사', exact: true })).toBeVisible()
+  const copied = state.transactions.find((t) => t.description === '저녁 복사')!
+  expect(copied.id).not.toBe(original.id)
+  expect(original.lines[0]!.amount).toBe('50000')
+  expect(copied.lines[0]!.amount).toBe('51000')
   await page.goto('/transactions/new')
+  await expect(page.getByRole('region', { name: '최근 거래 복사' })).toContainText('저녁 복사')
   await page.getByRole('button', { name: '직접분개', exact: true }).click()
   await page.getByLabel('사용처 / 설명').fill('직접분개 확인')
   await page.getByLabel('분개 1 계정', { exact: true }).selectOption(aid('식비'))
   await page.getByLabel('분개 2 계정', { exact: true }).selectOption(aid('현금'))
   await page.getByLabel('분개 1 금액', { exact: true }).fill('1000')
+  await page.getByLabel('분개 1 메모', { exact: true }).fill('복사해도 남을 메모')
   await page.getByLabel('분개 2 금액', { exact: true }).fill('500')
   await page.getByRole('button', { name: '거래 저장 →' }).click()
   await expect(page.getByRole('alert')).toContainText('차변과 대변')
-  await page.getByLabel('분개 2 금액', { exact: true }).fill('1000')
+  await page.getByRole('button', { name: '＋ 분개 추가' }).click()
+  await page.getByLabel('분개 3 계정', { exact: true }).selectOption(aid('현금'))
+  await page.getByLabel('분개 3 유형', { exact: true }).selectOption('CREDIT')
+  await page.getByLabel('분개 3 금액', { exact: true }).fill('500')
   await page.getByRole('button', { name: '거래 저장 →' }).click()
   await expect(page.getByRole('link', { name: '직접분개 확인', exact: true })).toBeVisible()
+  const journal = state.transactions.find((t) => t.description === '직접분개 확인')!
+  await page.goto(`/transactions/new?copy=${journal.id}`)
+  await expect(page.getByLabel('분개 1 메모', { exact: true })).toHaveValue('복사해도 남을 메모')
+  await expect(page.locator('.journal-totals')).toContainText('균형 일치')
+  await expect(page.locator('.journal-row')).toHaveCount(3)
+  await page.setViewportSize({ width: 320, height: 812 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  )
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByLabel('사용처 / 설명').fill('분개 복사')
+  await page.screenshot({ path: 'docs/mobile-journal.png', fullPage: true, animations: 'disabled' })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  )
+  await page.getByRole('button', { name: '거래 저장 →' }).click()
+  await expect(page.getByRole('link', { name: '분개 복사', exact: true })).toBeVisible()
+  expect(state.transactions.find((t) => t.description === '분개 복사')!.lines[0]!.memo).toBe(
+    '복사해도 남을 메모',
+  )
+  await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/accounts')
   await page.getByRole('button', { name: '＋ 계정 추가' }).click()
   await page.getByLabel('계정 이름', { exact: true }).fill('비상금')
@@ -296,7 +416,7 @@ test('complete household journey, accounting inputs, reports, persistence reload
   await page.getByRole('button', { name: '로그아웃', exact: true }).click()
   await expect(page).toHaveURL(/login/)
   expect(errors).toEqual([])
-  expect(calls.filter((c) => c.name === 'create_transaction')).toHaveLength(6)
+  expect(calls.filter((c) => c.name === 'create_transaction')).toHaveLength(8)
 })
 
 test('signup confirmation, login errors, protected-route redirect and mobile login', async ({

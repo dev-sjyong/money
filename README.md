@@ -8,6 +8,8 @@ Nuxt 4 + Vue 3 + TypeScript + Supabase Auth/PostgreSQL/RLS/RPC로 구현한 수�
 - 기본 계정 24개, 계층형 계정 생성·수정·보관·복구, 초기 자산/부채 분개
 - 지출·수입·계좌이체·카드대금·대출 원금 상환·직접분개
 - 거래 검색·월 필터·목록·상세·수정·삭제, 동시 수정 감지
+- 거래 변경 전후 이력, 소유자 휴지통·삭제 복구
+- 거래 복사·최근 거래 바로 복사, 모바일 숫자 입력·빠른 금액 추가·분개 메모
 - 월별 예산, 하위 계정 지출 포함, 중첩 예산 중복 제거
 - 대시보드, 월별 손익, 자산/부채, 월말 순자산 추이
 - 소유자와 구성원 총 2명, 일회용 24시간 초대 코드
@@ -28,13 +30,21 @@ npm run dev
 ## Supabase 연결
 
 1. 새 Supabase 프로젝트를 준비합니다(PostgreSQL 15 이상).
-2. SQL Editor 또는 Supabase migration 도구에서 `supabase/migrations/202609290001_ledger.sql` 전체를 실행합니다. 신규 스키마용 migration이며, 이미 적용된 DB에 중복 실행하지 않습니다.
+2. SQL Editor 또는 Supabase migration 도구에서 `supabase/migrations/202609290001_ledger.sql`, `supabase/migrations/202609290002_transaction_history.sql`을 순서대로 실행합니다. 이미 적용된 migration은 중복 실행하지 않습니다.
 3. Auth에서 Email provider를 활성화합니다. 이메일 확인이 켜져 있으면 수신한 확인 링크를 누른 후 로그인합니다.
 4. Auth URL Configuration의 Site URL을 서비스 도메인(개발 시 localhost 주소)으로 설정합니다. 필요한 Redirect URL도 등록합니다.
 5. 프로젝트 URL과 공개 키를 `.env`의 `NUXT_PUBLIC_SUPABASE_URL`, `NUXT_PUBLIC_SUPABASE_ANON_KEY`에 입력합니다.
 6. 가입 → 로그인 → 설정에서 가계부 생성 → 계정 이름 정리 → 초기 자산 등록 → 거래 기록 순서로 시작합니다.
 
 초대할 때는 설정 → 구성원 → 초대 코드 만들기에서 나온 코드를 상대에게 전달합니다. 상대는 본인 계정으로 로그인하고 설정의 '초대받은 가계부 참여'에서 코드를 입력합니다. 코드 재발급 시 이전 코드는 무효화되며, 수락 또는 구성원 삭제 시 코드가 제거됩니다.
+
+## 기존 서비스 업그레이드: DB 먼저, 앱 나중
+
+이미 001을 적용한 서비스는 Supabase SQL Editor에서 **[002 SQL](supabase/migrations/202609290002_transaction_history.sql)만 전체 실행**하세요. 테스트용 bootstrap이나 001을 재실행하지 않습니다. 002 성공 후 이 변경을 main에 병합하여 Vercel을 배포합니다. 기존 앱은 새 DB와 호환되므로 DB부터 적용할 수 있습니다.
+
+도입 당시 존재하던 거래는 '이력 기록 시작' 스냅샷이 남습니다. 도입 전 수정 과정이나 이미 영구 삭제된 거래는 복원되지 않습니다. 이후 삭제 거래는 소유자가 휴지통에서 복구할 수 있으며, 자동 만료나 영구 삭제 기능은 추가하지 않았습니다. 복구 대상에 보관 계정이 있으면 계정을 먼저 복구해야 합니다.
+
+배포 후 거래 생성 → 수정 → 이력 확인 → 삭제 → 휴지통 복구 → 잔액 확인, 거래 복사 → 오늘 날짜·원본 유지 확인을 수행하세요. 로컬 검증 결과는 [고도화 기록](docs/ENHANCEMENTS.md)에 있습니다.
 
 ## Vercel 배포 준비
 
@@ -60,8 +70,12 @@ npm run build
 ```sh
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/bootstrap.sql
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202609290001_ledger.sql
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/history-baseline.sql
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202609290002_transaction_history.sql
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/history.sql
 TEST_DATABASE_URL="$TEST_DATABASE_URL" npm run test:db
 TEST_DATABASE_URL="$TEST_DATABASE_URL" python3 tests/concurrency.py
+TEST_DATABASE_URL="$TEST_DATABASE_URL" python3 tests/history-concurrency.py
 ```
 
 브라우저 테스트는 실제 앱과 Supabase HTTP 응답 fixture를 사용합니다. 실제 이메일/JWT/PostgREST 연동을 통과했다는 의미는 아닙니다.
@@ -87,7 +101,7 @@ npm run test:ui
 - 앱 역할은 테이블 직접 쓰기를 할 수 없습니다. RPC는 auth.uid()와 household 소속 및 OWNER 여부를 재검증합니다.
 - 모든 데이터 테이블은 RLS, balance view는 security_invoker. SECURITY DEFINER 함수는 고정된 빈 search_path와 완전 수식 테이블명을 사용합니다.
 - 중요한 변경은 household 행 잠금으로 직렬화합니다. 초대 수락 경쟁과 구성원 삭제/쓰기 경쟁을 방지합니다.
-- MEMBER: 거래 생성/수정, 예산 관리, 모든 보고서 읽기. OWNER: 이에 더해 계정/구성원/설정, 초기 자산, 거래 삭제.
+- MEMBER: 거래 생성/수정, 예산 관리, 모든 보고서 읽기. OWNER: 이에 더해 계정/구성원/설정, 초기 자산, 거래 삭제·휴지통·복구.
 - 계정 유형 변경은 과거 원장의 의미를 바꾸므로 허용하지 않습니다. 새로운 계정으로 대체하세요.
 - 시작 잔액은 기초순자산을 반대 계정으로 한 분개입니다. 적자가 시작값이면 자본 차변으로 기록합니다.
 - 카드대금·계좌이체·대출 원금은 비용이 아닙니다. 이자와 함께 상환할 때는 직접분개에 별도 비용 행을 추가합니다.

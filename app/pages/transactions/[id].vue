@@ -25,12 +25,20 @@ async function erase() {
       <span class="eyebrow">기록 살펴보기</span>
       <h1>거래 상세·수정</h1>
     </div>
-    <button v-if="t && isOwner" class="danger secondary" @click="confirmDelete = true">
-      거래 삭제
-    </button>
+    <div class="heading-actions">
+      <NuxtLink v-if="t && !t.is_opening" :to="`/transactions/new?copy=${t.id}`" class="secondary"
+        >이 거래 복사</NuxtLink
+      >
+      <button v-if="t && isOwner" class="danger secondary" @click="confirmDelete = true">
+        거래 삭제
+      </button>
+    </div>
   </div>
   <div v-if="confirmDelete" class="alert error" role="alert">
-    <p>이 거래와 분개를 삭제할까요? 자산 잔액과 보고서에도 반영됩니다.</p>
+    <p>
+      이 거래를 휴지통으로 이동할까요? 잔액과 보고서에서 제외되며, 소유자가 휴지통에서 복구할 수
+      있어요.
+    </p>
     <button class="danger secondary" :disabled="busy" @click="erase">삭제 확인</button>
     <button class="secondary" @click="confirmDelete = false">취소</button>
   </div>
@@ -44,5 +52,9 @@ async function erase() {
     <p>초기 자산 기록은 소유자만 수정할 수 있어요.</p>
     <TransactionTable :items="[t]" />
   </div>
-  <p v-else class="empty panel">거래를 불러오는 중이거나, 접근할 수 없는 거래입니다.</p>
+  <div v-else class="empty panel">
+    <p>거래를 불러오는 중이거나, 삭제 또는 접근할 수 없는 거래입니다.</p>
+    <NuxtLink v-if="isOwner" class="secondary" to="/transactions/trash">휴지통 확인</NuxtLink>
+  </div>
+  <TransactionHistory v-if="t" :transaction-id="t.id" :version="t.updated_at" />
 </template>
