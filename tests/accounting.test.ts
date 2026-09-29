@@ -151,3 +151,54 @@ test('historical balances respect dates and month boundaries', () => {
   assert.equal(monthEnd('2024-02'), '2024-02-29')
   assert.deepEqual(pastMonths('2026-02', 3), ['2025-12', '2026-01', '2026-02'])
 })
+
+// Input and copy tests share the exact bigint/line helpers used by the UI.
+test('copy keeps source immutable, defaults to today and preserves all split-line memos', async () => {
+  const { copyTransactionDraft, inferTransactionKind } =
+    await import('../app/utils/transactionDraft')
+  const source = tx(
+    [
+      { account_id: 'food', entry_type: 'DEBIT', amount: '1000', memo: '분개 메모' },
+      { account_id: 'cash', entry_type: 'CREDIT', amount: '1000' },
+    ],
+    1,
+  )
+  source.transaction_date = '2020-01-01'
+  source.memo = '전체 메모'
+  const draft = copyTransactionDraft(source)
+  assert.notEqual(draft.date, source.transaction_date)
+  assert.equal(draft.memo, '전체 메모')
+  assert.equal(draft.lines[0]!.memo, '분개 메모')
+  draft.lines[0]!.amount = '2000'
+  assert.equal(source.lines[0]!.amount, '1000')
+  assert.equal(inferTransactionKind(source.lines, accounts), 'journal')
+  assert.equal(
+    inferTransactionKind(simpleLines('expense', get('food'), get('cash'), '1000'), accounts),
+    'expense',
+  )
+  assert.equal(
+    inferTransactionKind(simpleLines('income', get('bank'), get('salary'), '1000'), accounts),
+    'income',
+  )
+  assert.equal(
+    inferTransactionKind(simpleLines('transfer', get('saving'), get('bank'), '1000'), accounts),
+    'transfer',
+  )
+  assert.equal(
+    inferTransactionKind(simpleLines('card', get('card'), get('bank'), '1000'), accounts),
+    'journal',
+  )
+  assert.throws(() => copyTransactionDraft({ ...source, is_opening: true }))
+})
+test('mobile amount input supports commas and quick additions without precision loss', async () => {
+  const { displayAmount, normalizeAmountInput, incrementAmount } =
+    await import('../app/utils/transactionDraft')
+  assert.equal(displayAmount('9007199254740993'), '9,007,199,254,740,993')
+  assert.equal(normalizeAmountInput('0012,345'), '12345')
+  assert.equal(incrementAmount('9007199254740993', 1000n), '9007199254741993')
+  assert.equal(incrementAmount('', 1000n), '1000')
+  assert.equal(normalizeAmountInput('-1'), '-1')
+  assert.equal(normalizeAmountInput('1.5'), '1.5')
+  assert.throws(() => incrementAmount('1.5', 1000n))
+  assert.throws(() => incrementAmount('9223372036854775807', 1000n))
+})

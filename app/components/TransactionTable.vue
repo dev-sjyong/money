@@ -13,7 +13,7 @@ const { label } = useAccounts()
           <th>거래 내역</th>
           <th>계정</th>
           <th class="right">거래 금액</th>
-          <th></th>
+          <th><span class="sr-only">거래 작업</span></th>
         </tr>
       </thead>
       <tbody>
@@ -42,7 +42,14 @@ const { label } = useAccounts()
               )
             }}<small> 원</small>
           </td>
-          <td>
+          <td class="transaction-row-actions">
+            <NuxtLink
+              v-if="!t.is_opening"
+              :to="`/transactions/new?copy=${t.id}`"
+              class="text-button"
+              :aria-label="t.description + ' 복사'"
+              >복사</NuxtLink
+            >
             <NuxtLink :to="`/transactions/${t.id}`" :aria-label="t.description + ' 상세'"
               >↗</NuxtLink
             >

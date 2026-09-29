@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { today } from '~/utils/accounting'
 const { transactions } = useTransactions()
+const { isOwner } = useLedger()
 const { label } = useAccounts()
 const search = ref(''),
   month = ref(today().slice(0, 7)),
@@ -24,7 +25,10 @@ const count = computed(() => Math.max(1, Math.ceil(filtered.value.length / 25)))
       <h1>거래 내역</h1>
       <p class="muted">작은 기록 하나까지, 우리 돈의 흐름.</p>
     </div>
-    <NuxtLink to="/transactions/new" class="button">＋ 거래 기록</NuxtLink>
+    <div class="heading-actions">
+      <NuxtLink v-if="isOwner" to="/transactions/trash" class="secondary">휴지통</NuxtLink
+      ><NuxtLink to="/transactions/new" class="button">＋ 거래 기록</NuxtLink>
+    </div>
   </div>
   <section class="panel">
     <div class="toolbar">

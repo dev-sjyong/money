@@ -2,22 +2,31 @@
 import type { Line, Transaction, TransactionKind } from '~/types/ledger'
 import { kindLabels } from '~/types/ledger'
 import { simpleLines, today, won } from '~/utils/accounting'
-const props = defineProps<{ existing?: Transaction }>()
+import { copyTransactionDraft, inferTransactionKind } from '~/utils/transactionDraft'
+const props = defineProps<{ existing?: Transaction; copyFrom?: Transaction }>()
 const { active, accounts, label } = useAccounts()
 const { save } = useTransactions()
-const kind = ref<TransactionKind>(props.existing ? 'journal' : 'expense')
+const draft = props.copyFrom ? copyTransactionDraft(props.copyFrom) : null
+const source = props.existing ?? props.copyFrom
+const kind = ref<TransactionKind>(
+  props.existing
+    ? 'journal'
+    : draft
+      ? inferTransactionKind(draft.lines, accounts.value)
+      : 'expense',
+)
 const date = ref(props.existing?.transaction_date ?? today()),
-  description = ref(props.existing?.description ?? ''),
-  memo = ref(props.existing?.memo ?? ''),
-  value = ref(''),
-  debit = ref(''),
-  credit = ref(''),
+  description = ref(source?.description ?? ''),
+  memo = ref(source?.memo ?? ''),
+  value = ref(draft?.lines.find((l) => l.entry_type === 'DEBIT')?.amount ?? ''),
+  debit = ref(draft?.lines.find((l) => l.entry_type === 'DEBIT')?.account_id ?? ''),
+  credit = ref(draft?.lines.find((l) => l.entry_type === 'CREDIT')?.account_id ?? ''),
   busy = ref(false),
   error = ref('')
 const requestId = crypto.randomUUID()
 const lines = ref<Line[]>(
-  props.existing
-    ? props.existing.lines.map((l) => ({ ...l }))
+  source
+    ? source.lines.map((l) => ({ ...l }))
     : [
         { account_id: '', entry_type: 'DEBIT', amount: '' },
         { account_id: '', entry_type: 'CREDIT', amount: '' },
@@ -92,6 +101,15 @@ async function submit() {
 </script>
 <template>
   <form class="panel transaction-form" @submit.prevent="submit">
+    <p v-if="copyFrom" class="alert" role="status">
+      기존 거래를 복사했어요. 날짜는 오늘이며, 저장하면 별도의 새 거래가 됩니다.
+    </p>
+    <p
+      v-if="source?.lines.some((l) => accounts.find((a) => a.id === l.account_id)?.is_archived)"
+      class="alert"
+    >
+      보관된 계정이 있어요. 사용 가능한 계정으로 바꾸거나 먼저 계정을 복구해 주세요.
+    </p>
     <div v-if="!existing" class="tabs" aria-label="거래 유형">
       <button
         v-for="(title, k) in kindLabels"
@@ -117,18 +135,10 @@ async function submit() {
           placeholder="어떤 거래였나요?"
       /></label>
     </div>
-    <template v-if="kind !== 'journal'"
-      ><label class="amount-input"
-        >금액<span class="input-with-unit"
-          ><input
-            v-model="value"
-            inputmode="numeric"
-            pattern="[1-9][0-9]*"
-            required
-            placeholder="0"
-          /><span>원</span></span
-        ></label
-      >
+    <template v-if="kind !== 'journal'">
+      <div class="amount-input">
+        <span class="field-label">금액 (원)</span><AmountInput v-model="value" label="금액" quick />
+      </div>
       <div class="form-grid">
         <label
           >{{ labels[0]
@@ -168,13 +178,7 @@ async function submit() {
         ><select v-model="l.entry_type" :aria-label="`분개 ${i + 1} 유형`">
           <option value="DEBIT">차변</option>
           <option value="CREDIT">대변</option></select
-        ><input
-          v-model="l.amount"
-          inputmode="numeric"
-          pattern="[1-9][0-9]*"
-          required
-          :aria-label="`분개 ${i + 1} 금액`"
-        /><button
+        ><AmountInput v-model="l.amount" :label="`분개 ${i + 1} 금액`" /><button
           type="button"
           class="icon-button"
           :disabled="lines.length <= 2"
@@ -183,6 +187,14 @@ async function submit() {
         >
           ×
         </button>
+        <label class="line-memo"
+          >분개 메모 <span class="muted">선택</span
+          ><input
+            v-model="l.memo"
+            maxlength="2000"
+            :aria-label="`분개 ${i + 1} 메모`"
+            placeholder="이 분개에 대한 메모"
+        /></label>
       </div>
       <button
         type="button"
@@ -208,7 +220,7 @@ async function submit() {
       ></textarea>
     </label>
     <p v-if="error" class="alert error" role="alert">{{ error }}</p>
-    <div class="form-actions">
+    <div class="form-actions mobile-save-actions">
       <NuxtLink to="/transactions" class="secondary">취소</NuxtLink
       ><button class="button" :disabled="busy">
         {{ busy ? '저장 중…' : existing ? '수정 저장' : '거래 저장' }} →

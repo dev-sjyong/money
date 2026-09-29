@@ -1,4 +1,4 @@
-import type { Line, Transaction } from '~/types/ledger'
+import type { Line, Transaction, TrashTransaction } from '~/types/ledger'
 import { validateLines } from '~/utils/accounting'
 export function useTransactions() {
   const { rpc, refresh, data } = useLedger()
@@ -28,6 +28,13 @@ export function useTransactions() {
           p_memo: input.memo || null,
           p_lines: input.lines,
         })
+      await refresh()
+    },
+    async restore(t: TrashTransaction) {
+      await rpc('restore_transaction', {
+        p_id: t.transaction_id,
+        p_expected_deleted_at: t.deleted_at,
+      })
       await refresh()
     },
     async remove(t: Transaction) {
