@@ -1841,3 +1841,59 @@ footer > span:last-child {
 .analytics-table td:nth-child(2) {
   min-width: 140px;
 }
+.fixed-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.fixed-editor fieldset,
+.fixed-confirm fieldset {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.fixed-fields label,
+.fixed-confirm label {
+  display: grid;
+  gap: 8px;
+}
+.fixed-actions,
+.fixed-amounts,
+.fixed-management {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 18px 0;
+}
+.fixed-management {
+  justify-content: space-between;
+}
+.fixed-confirm {
+  padding: 20px;
+  margin-top: 20px;
+  background: #f5f7f1;
+  border-radius: 12px;
+}
+.fixed-card h2,
+.fixed-management span,
+.fixed-amounts {
+  overflow-wrap: anywhere;
+}
+.fixed-fields input,
+.fixed-fields select,
+.fixed-confirm select {
+  min-width: 0;
+  max-width: 100%;
+}
+@media (max-width: 600px) {
+  .fixed-fields {
+    grid-template-columns: 1fr;
+  }
+  .fixed-confirm {
+    padding: 14px;
+  }
+  .fixed-actions .button {
+    flex: 1;
+  }
+}
