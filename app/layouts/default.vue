@@ -9,6 +9,7 @@ const links = [
   ['/transactions', '⇄', '거래 내역'],
   ['/accounts', '▤', '자산과 계정'],
   ['/budgets', '◎', '월 예산'],
+  ['/fixed-expenses', '↻', '고정지출'],
   ['/repayment', '▦', '개인회생 일정'],
   ['/reports', '▧', '통계 한눈에'],
   ['/reports/income-expense', '▥', '월별 수입·지출'],

@@ -14,6 +14,7 @@ Nuxt 4 + Vue 3 + TypeScript + Supabase Auth/PostgreSQL/RLS/RPC로 구현한 수�
 - 대시보드, 월별 손익, 자산/부채, 월말 순자산 추이
 - 통계 한눈에: 기간 비교·항목별 상세 거래·환불 분석·CSV, 기준일별 자산·부채 비교와 최대 24개월 추이
 - 소유자와 구성원 총 2명, 일회용 24시간 초대 코드
+- 고정지출: 월별 예정 목록·실제 납부 확인·기존 거래 연결·건너뛰기·적용 월별 규칙 변경
 - 개인회생 일정: 사람별 가변 변제금·종료일, 부분 납부/선납 기록, 남은 회차·금액·미납액
 
 ## 실행
@@ -32,7 +33,7 @@ npm run dev
 ## Supabase 연결
 
 1. 새 Supabase 프로젝트를 준비합니다(PostgreSQL 15 이상).
-2. SQL Editor 또는 Supabase migration 도구에서 `supabase/migrations/202609290001_ledger.sql`, `supabase/migrations/202609290002_transaction_history.sql`, `supabase/migrations/202609300003_repayment.sql`을 순서대로 실행합니다. 이미 적용된 migration은 중복 실행하지 않습니다.
+2. SQL Editor 또는 Supabase migration 도구에서 `supabase/migrations/202609290001_ledger.sql`, `supabase/migrations/202609290002_transaction_history.sql`, `supabase/migrations/202609300003_repayment.sql`, `supabase/migrations/202609300004_fixed_expenses.sql`을 순서대로 실행합니다. 이미 적용된 migration은 중복 실행하지 않습니다.
 3. Auth에서 Email provider를 활성화합니다. 이메일 확인이 켜져 있으면 수신한 확인 링크를 누른 후 로그인합니다.
 4. Auth URL Configuration의 Site URL을 서비스 도메인(개발 시 localhost 주소)으로 설정합니다. 필요한 Redirect URL도 등록합니다.
 5. 프로젝트 URL과 공개 키를 `.env`의 `NUXT_PUBLIC_SUPABASE_URL`, `NUXT_PUBLIC_SUPABASE_ANON_KEY`에 입력합니다.
@@ -91,10 +92,13 @@ psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202609290002
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/history.sql
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202609300003_repayment.sql
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/repayment.sql
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202609300004_fixed_expenses.sql
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/fixed.sql
 TEST_DATABASE_URL="$TEST_DATABASE_URL" npm run test:db
 TEST_DATABASE_URL="$TEST_DATABASE_URL" python3 tests/concurrency.py
 TEST_DATABASE_URL="$TEST_DATABASE_URL" python3 tests/history-concurrency.py
 TEST_DATABASE_URL="$TEST_DATABASE_URL" python3 tests/repayment-concurrency.py
+TEST_DATABASE_URL="$TEST_DATABASE_URL" python3 tests/fixed-concurrency.py
 ```
 
 브라우저 테스트는 실제 앱과 Supabase HTTP 응답 fixture를 사용합니다. 실제 이메일/JWT/PostgREST 연동을 통과했다는 의미는 아닙니다.
@@ -120,6 +124,20 @@ npm run test:ui
 - **순자산 추이**: 6/12/24개월과 자산/부채/순자산 지표를 선택할 수 있습니다.
 
 통계는 저장된 원장 기준입니다. 이체/원금 상환은 수입·지출에서 제외되고 환불은 지출에서 차감합니다. 개인회생 일정에만 기록한 납부는 자동 포함하지 않습니다. 상세 검증은 [ANALYTICS](docs/ANALYTICS.md)에 있습니다. 이번 통계 개선에는 추가 SQL이 필요 없습니다.
+
+## 고정지출 사용 방법
+
+기존 001~003 적용 서비스는 **[004 SQL](supabase/migrations/202609300004_fixed_expenses.sql)만** Supabase SQL Editor에서 먼저 실행한 뒤 새 코드를 배포합니다. 기존 migration이나 테스트 bootstrap은 재실행하지 않습니다.
+
+1. **고정지출 → 고정지출 추가**에서 이름/예상 금액/매월 납부일/적용 시작 월/지출 계정/결제 계정을 입력합니다. 종료 월은 선택이며 31일처럼 해당 월에 없는 날짜는 말일로 맞춥니다.
+2. 매달 **납부 확인**에서 실제 납부일과 금액을 확인하면 지출 거래 1건을 생성합니다. 예상 금액과 달라도 실제 청구 금액으로 완료 처리합니다.
+3. 이미 거래를 기록했다면 **기존 거래 연결**을 사용합니다. 같은 지출/결제 계정의 두 줄 단순 지출 거래만 연결되며 한 거래는 한 항목/월에만 연결됩니다. 앞뒤 달에 실제 납부한 거래도 날짜를 확인해서 연결할 수 있습니다.
+4. **이번 달 건너뛰기**는 해당 월에만 적용됩니다. **처리 취소**는 상태/연결만 해제하고 기존 거래를 삭제하지 않습니다. 다시 처리할 때 기존 거래를 연결하면 중복 기록을 피할 수 있습니다.
+5. **규칙 수정**에서 적용 월을 지정하여 금액·날짜·계정 변경 또는 중단/재개를 설정합니다. 기존 규칙 변경은 이번 달 이후만 가능하고, 이전 달 규칙과 이미 처리된 달의 예정정보는 유지됩니다. 같은 적용 월은 덮어쓰고 이후에 별도로 예약한 규칙은 유지됩니다.
+
+예정 항목만으로 원장/통계/예산이 증가하지 않습니다. 실제 거래 생성 또는 연결 후에는 거래 날짜 기준으로 집계됩니다. 연결된 거래가 삭제되거나 계정·미래 날짜로 수정되면 '거래 확인 필요'로 표시됩니다. 원래 거래를 휴지통에서 복구하면 연결이 회복됩니다. 개인회생 일정·대출 원금 상환·계좌이체는 기존 전용 메뉴를 사용하세요.
+
+거래 자동 생성/은행 자동 결제/알림 발송은 하지 않습니다. 가계부의 두 구성원 모두 관리할 수 있고 동시에 확인해도 중복 거래를 막습니다. [설계 및 검증](docs/FIXED_EXPENSES.md).
 
 ## 회계·권한 설계
 
