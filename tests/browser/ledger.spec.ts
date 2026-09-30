@@ -297,6 +297,24 @@ test('complete household journey, accounting inputs, reports, persistence reload
     animations: 'disabled',
   })
   await page.setViewportSize({ width: 390, height: 844 })
+  const quickNav = page.getByRole('navigation', { name: '빠른 이동' })
+  await expect(quickNav).toBeVisible()
+  await expect(quickNav.getByRole('link', { name: '한눈에 보기' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
+  await quickNav.getByRole('button', { name: '전체 메뉴' }).click()
+  await expect(page.getByRole('navigation', { name: '전체 화면' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(quickNav.getByRole('button', { name: '전체 메뉴' })).toBeFocused()
+  await quickNav.getByRole('button', { name: '전체 메뉴' }).click()
+  await page
+    .getByRole('navigation', { name: '전체 화면' })
+    .getByRole('link', { name: '월 예산', exact: true })
+    .click()
+  await expect(page).toHaveURL(/budgets/)
+  await expect(page.getByRole('navigation', { name: '전체 화면' })).toHaveCount(0)
+  await quickNav.getByRole('link', { name: '한눈에 보기' }).click()
   await page.screenshot({
     path: 'test-results/dashboard-mobile.png',
     fullPage: true,
