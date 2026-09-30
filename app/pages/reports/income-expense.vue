@@ -21,6 +21,7 @@ watch(month, (value) => {
     </div>
     <input v-model="month" type="month" required aria-label="보고서 기준 월" />
   </div>
+  <NuxtLink to="/reports" class="secondary">기간 비교·지출 상세 분석 →</NuxtLink>
   <div class="report-grid">
     <section class="panel">
       <h2>최근 12개월</h2>

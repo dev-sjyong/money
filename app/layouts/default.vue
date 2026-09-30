@@ -10,6 +10,7 @@ const links = [
   ['/accounts', '▤', '자산과 계정'],
   ['/budgets', '◎', '월 예산'],
   ['/repayment', '▦', '개인회생 일정'],
+  ['/reports', '▧', '통계 한눈에'],
   ['/reports/income-expense', '▥', '월별 수입·지출'],
   ['/reports/assets', '◷', '자산·부채 보고서'],
   ['/reports/net-worth', '↗', '순자산 추이'],
@@ -61,7 +62,9 @@ async function logout() {
           v-for="[href, icon, label] in links"
           :key="href"
           :to="href!"
-          :class="{ active: route.path.startsWith(href!) }"
+          :class="{
+            active: href === '/reports' ? route.path === href : route.path.startsWith(href!),
+          }"
           ><span aria-hidden="true">{{ icon }}</span
           >{{ label }}</NuxtLink
         >
