@@ -1,0 +1,35 @@
+\set ON_ERROR_STOP on
+begin;
+create schema delete_test;
+create function delete_test.ok(v boolean,label text) returns void language plpgsql as $$begin if v is distinct from true then raise exception 'FAIL %',label;end if;raise notice 'PASS %',label;end$$;
+create function delete_test.reject(q text,label text) returns void language plpgsql as $$begin begin execute q;exception when others then raise notice 'PASS rejected %',label;return;end;raise exception 'FAIL accepted %',label;end$$;
+grant usage on schema delete_test to authenticated,anon;
+grant execute on all functions in schema delete_test to authenticated,anon;
+insert into auth.users(id) values('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+set local role authenticated;
+select set_config('request.jwt.claim.sub','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true);
+do $$declare h uuid;f uuid:=gen_random_uuid();bank uuid;expense uuid;tid uuid;m date:=date_trunc('month',current_date)::date;begin
+ h:=public.create_household('삭제 시험');select id into bank from public.accounts where household_id=h and name='은행';select id into expense from public.accounts where household_id=h and type='EXPENSE' limit 1;
+ perform public.save_fixed_expense(h,f,0,m,'통신비','100',25,expense,bank);
+ tid:=public.process_fixed_expense(h,f,m,1,0,'pay','2020-01-01','100');
+ perform delete_test.reject(format('select public.delete_fixed_expense(%L,%L,0)',h,f),'stale deletion');
+ perform set_config('request.jwt.claim.sub','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',true);
+ perform delete_test.reject(format('select public.delete_fixed_expense(%L,%L,1)',h,f),'outsider deletion');
+ perform set_config('request.jwt.claim.sub','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true);
+ perform public.delete_fixed_expense(h,f,1);
+ perform delete_test.ok((select deleted_at is not null and revision=2 from public.fixed_expenses where id=f),'soft deleted');
+ perform delete_test.ok(public.fixed_expense_snapshot(h,m)->'templates'='[]'::jsonb,'template hidden');
+ perform delete_test.ok(public.fixed_expense_snapshot(h,(m-interval '1 month')::date)->'templates'='[]'::jsonb,'past months hidden');
+ perform delete_test.ok((select count(*)=1 from public.transactions where id=tid),'transaction preserved');
+ perform delete_test.ok((select count(*)=1 from public.fixed_expense_records where fixed_id=f and transaction_id=tid),'link record preserved');
+ perform delete_test.ok(public.fixed_expense_snapshot(h,m)->'linked_transactions' ? tid::text,'duplicate reservation preserved');
+ perform delete_test.reject(format('select public.delete_fixed_expense(%L,%L,2)',h,f),'repeat deletion');
+ perform delete_test.reject(format('select public.save_fixed_expense(%L,%L,2,%L,''changed'',''100'',25,%L,%L)',h,f,m,expense,bank),'deleted rule edits');
+ perform delete_test.reject(format('select public.process_fixed_expense(%L,%L,%L,2,1,''reset'')',h,f,m),'deleted record reset');
+ perform delete_test.reject(format('select public.process_fixed_expense(%L,%L,%L,2,0,''pay'',''2020-01-01'',''100'')',h,f,(m+interval '1 month')::date),'deleted future payment rollback');
+ perform delete_test.ok((select count(*)=1 from public.transactions where household_id=h),'rejected payment creates no transaction');
+ set constraints all immediate;
+end$$;
+set local role anon;
+select delete_test.reject('select public.delete_fixed_expense(null,null,0)','anonymous deletion');
+rollback;

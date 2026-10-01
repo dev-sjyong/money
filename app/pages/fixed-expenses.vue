@@ -28,6 +28,7 @@ const action = ref<{ row: FixedRow; kind: 'pay' | 'link' | 'skip' | 'reset' } | 
   actualDate = ref(koreaToday()),
   actualAmount = ref(''),
   transactionId = ref('')
+const deleting = ref<FixedTemplate | null>(null)
 let generation = 0
 const rows = computed(() =>
     fixedRows(snapshot.value, month.value, data.value.transactions, now.value),
@@ -92,6 +93,7 @@ watch(
     snapshot.value = { templates: [], records: [], linked_transactions: [] }
     showEditor.value = false
     action.value = null
+    deleting.value = null
     notice.value = ''
     filter.value = 'all'
     void load()
@@ -145,6 +147,7 @@ async function mutate(operation: () => Promise<unknown>, success: string) {
     if (h !== householdId.value || u !== user.value?.id || m !== month.value) return
     showEditor.value = false
     action.value = null
+    deleting.value = null
     notice.value = success
     await load()
   } catch (e) {
@@ -153,6 +156,24 @@ async function mutate(operation: () => Promise<unknown>, success: string) {
   } finally {
     busy.value = false
   }
+}
+function askDelete(t: FixedTemplate) {
+  deleting.value = t
+  error.value = ''
+  notice.value = ''
+}
+async function remove() {
+  const target = deleting.value
+  if (!target || target.household_id !== householdId.value) return
+  await mutate(
+    () =>
+      rpc('delete_fixed_expense', {
+        p_household: householdId.value,
+        p_id: target.id,
+        p_revision: target.revision,
+      }),
+    '고정지출 항목을 삭제했어요. 기존 거래는 그대로 남아 있어요.',
+  )
 }
 async function process() {
   if (!action.value) return
@@ -393,11 +414,31 @@ async function process() {
         종료·중단한 항목도 표시합니다. 금액 변경이나 재개는 적용 월을 지정하세요. 개인회생 일정과
         대출 원금 상환은 기존 전용 화면에서 관리하세요.
       </p>
+      <div v-if="deleting" class="alert" role="alert">
+        <p>
+          <strong>{{ (ruleAt(deleting, month) ?? deleting.rules[0])?.title }}</strong> 항목을
+          삭제할까요?
+        </p>
+        <p>
+          모든 월의 고정지출 목록과 예정액에서 제외합니다. 기존 납부 거래와 연결 이력은 보존하며, 이
+          화면에서 복구할 수 없습니다. 앞으로만 중단하려면 규칙 수정에서 중단하세요.
+        </p>
+        <button class="secondary" :disabled="busy || loading" @click="deleting = null">
+          삭제 취소
+        </button>
+        <button class="button" :disabled="busy || loading" @click="remove">
+          {{ busy ? '삭제 중…' : '항목 삭제 확인' }}
+        </button>
+      </div>
+      <p v-if="!snapshot.templates.length" class="muted">등록된 고정지출 항목이 없어요.</p>
       <div v-for="t in snapshot.templates" :key="t.id" class="fixed-management">
         <span
           >{{ (ruleAt(t, month) ?? t.rules[0])?.title }}
           <small class="muted">· 규칙 {{ t.rules.length }}개</small></span
-        ><button class="secondary" :disabled="busy || loading" @click="edit(t)">규칙 수정</button>
+        ><button class="secondary" :disabled="busy || loading" @click="edit(t)">규칙 수정</button
+        ><button class="text-button danger" :disabled="busy || loading" @click="askDelete(t)">
+          항목 삭제
+        </button>
       </div>
     </section>
   </template>
