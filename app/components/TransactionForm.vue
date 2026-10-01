@@ -2,10 +2,14 @@
 import type { Line, Transaction, TransactionKind } from '~/types/ledger'
 import { kindLabels } from '~/types/ledger'
 import { simpleLines, today, won } from '~/utils/accounting'
+import { duplicateCandidates } from '~/utils/workflow'
 import { copyTransactionDraft, inferTransactionKind } from '~/utils/transactionDraft'
 const props = defineProps<{ existing?: Transaction; copyFrom?: Transaction }>()
 const { active, accounts, label } = useAccounts()
 const { save } = useTransactions()
+const { preferences, update } = useWorkflowPreferences()
+const { transactions } = useTransactions()
+const duplicates = ref<Transaction[]>([])
 const draft = props.copyFrom ? copyTransactionDraft(props.copyFrom) : null
 const source = props.existing ?? props.copyFrom
 const kind = ref<TransactionKind>(
@@ -65,11 +69,20 @@ const sums = computed(() =>
     { DEBIT: 0n, CREDIT: 0n },
   ),
 )
-watch(kind, () => {
-  debit.value = ''
-  credit.value = ''
+function restoreRecent() {
+  const recent = preferences.value.recent[kind.value]
+  debit.value = debitOptions.value.some((a) => a.id === recent?.debit) ? recent!.debit : ''
+  credit.value = creditOptions.value.some((a) => a.id === recent?.credit) ? recent!.credit : ''
+}
+if (!source) restoreRecent()
+watch(kind, restoreRecent)
+watch([debitOptions, creditOptions, () => preferences.value.recent[kind.value]], () => {
+  if (!source && !debit.value && !credit.value) restoreRecent()
 })
-async function submit() {
+watch([date, description, value, debit, credit, lines], () => (duplicates.value = []), {
+  deep: true,
+})
+async function submit(confirmed = false) {
   if (busy.value) return
   error.value = ''
   busy.value = true
@@ -81,6 +94,11 @@ async function submit() {
       if (!d || !c) throw new Error('계정을 선택하세요.')
       journal = simpleLines(kind.value, d, c, value.value)
     }
+    const matches = duplicateCandidates(transactions.value, date.value, journal, props.existing?.id)
+    if (!confirmed && matches.length) {
+      duplicates.value = matches
+      return
+    }
     await save(
       {
         id: requestId,
@@ -91,6 +109,10 @@ async function submit() {
       },
       props.existing,
     )
+    if (kind.value !== 'journal')
+      update((p) => {
+        p.recent[kind.value] = { debit: debit.value, credit: credit.value }
+      })
     await navigateTo('/transactions')
   } catch (e) {
     error.value = message(e)
@@ -100,7 +122,7 @@ async function submit() {
 }
 </script>
 <template>
-  <form class="panel transaction-form" @submit.prevent="submit">
+  <form class="panel transaction-form" @submit.prevent="submit(false)">
     <p v-if="copyFrom" class="alert" role="status">
       기존 거래를 복사했어요. 날짜는 오늘이며, 저장하면 별도의 새 거래가 됩니다.
     </p>
@@ -135,6 +157,9 @@ async function submit() {
           placeholder="어떤 거래였나요?"
       /></label>
     </div>
+    <p v-if="!source && (debit || credit)" class="fineprint">
+      최근 사용한 계정을 선택했어요. 저장 전에 확인하세요. 이 브라우저에 유형별로 기억합니다.
+    </p>
     <template v-if="kind !== 'journal'">
       <div class="amount-input">
         <span class="field-label">금액 (원)</span><AmountInput v-model="value" label="금액" quick />
@@ -220,6 +245,17 @@ async function submit() {
       ></textarea>
     </label>
     <p v-if="error" class="alert error" role="alert">{{ error }}</p>
+    <div v-if="duplicates.length" class="alert" role="alert">
+      <p>
+        같은 날짜·계정·금액의 거래가 {{ duplicates.length }}건 있어요. 중복 기록인지 확인하세요.
+      </p>
+      <NuxtLink v-for="t in duplicates" :key="t.id" :to="'/transactions/' + t.id" class="block"
+        >{{ t.description }} · 기존 거래 보기 ↗</NuxtLink
+      >
+      <button type="button" class="secondary" :disabled="busy" @click="submit(true)">
+        확인하고 별도 거래 저장
+      </button>
+    </div>
     <div class="form-actions mobile-save-actions">
       <NuxtLink to="/transactions" class="secondary">취소</NuxtLink
       ><button class="button" :disabled="busy">

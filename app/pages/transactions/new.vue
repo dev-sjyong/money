@@ -3,9 +3,16 @@ const route = useRoute()
 const { householdId } = useHousehold(),
   { transactions } = useTransactions(),
   { loading } = useLedger()
+const { preferences, toggleFavorite, error: storageError } = useWorkflowPreferences()
+const favoriteId = computed(() =>
+  typeof route.query.favorite === 'string' ? route.query.favorite : '',
+)
+const { accounts } = useAccounts()
 const copyId = computed(() => (typeof route.query.copy === 'string' ? route.query.copy : ''))
 const source = computed(() =>
-  transactions.value.find((t) => t.id === copyId.value && !t.is_opening),
+  favoriteId.value
+    ? preferences.value.favorites.find((t) => t.id === favoriteId.value)
+    : transactions.value.find((t) => t.id === copyId.value && !t.is_opening),
 )
 const recent = computed(() => {
   const seen = new Set<string>()
@@ -31,7 +38,33 @@ const recent = computed(() => {
       <p class="muted">익숙한 방식으로 입력하면, 균형 잡힌 기록이 완성돼요.</p>
     </div>
   </div>
-  <section v-if="!copyId && recent.length" class="panel recent-copy" aria-label="최근 거래 복사">
+  <p v-if="storageError" class="alert" role="alert">{{ storageError }}</p>
+  <section
+    v-if="!copyId && !favoriteId && preferences.favorites.length"
+    class="panel recent-copy"
+    aria-label="즐겨찾는 거래"
+  >
+    <h2>즐겨찾는 거래</h2>
+    <p class="fineprint">
+      목록의 ☆로 추가해요. 최대 20개를 이 브라우저에 저장하며 날짜는 오늘로 복사됩니다.
+    </p>
+    <div v-for="t in preferences.favorites" :key="t.id" class="split">
+      <NuxtLink class="secondary" :to="'/transactions/new?favorite=' + t.id"
+        >{{ t.description }} · 입력</NuxtLink
+      ><button
+        class="text-button"
+        @click="toggleFavorite(t)"
+        :aria-label="t.description + ' 즐겨찾기 해제'"
+      >
+        해제
+      </button>
+    </div>
+  </section>
+  <section
+    v-if="!copyId && !favoriteId && recent.length"
+    class="panel recent-copy"
+    aria-label="최근 거래 복사"
+  >
     <h2>최근 거래에서 빠르게 시작</h2>
     <div class="copy-shortcuts">
       <NuxtLink
@@ -44,7 +77,7 @@ const recent = computed(() => {
     </div>
   </section>
   <TransactionForm
-    v-if="!copyId || source"
+    v-if="((!copyId && !favoriteId) || source) && (!favoriteId || accounts.length > 0)"
     :key="householdId + ':' + (source?.id || 'new')"
     :copy-from="source"
   />

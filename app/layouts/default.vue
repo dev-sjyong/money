@@ -15,6 +15,7 @@ const links = [
   ['/reports/income-expense', '▥', '월별 수입·지출'],
   ['/reports/assets', '◷', '자산·부채 보고서'],
   ['/reports/net-worth', '↗', '순자산 추이'],
+  ['/reports/month-close', '✓', '월 마감 점검'],
   ['/settings', '⚙', '설정'],
 ]
 const menuOpen = ref(false)
@@ -23,8 +24,8 @@ const menuPanel = ref<HTMLElement | null>(null)
 const groups = [
   { title: '일상 기록', items: links.slice(0, 3) },
   { title: '지출 계획', items: links.slice(3, 6) },
-  { title: '통계와 보고서', items: links.slice(6, 10) },
-  { title: '가계부 관리', items: links.slice(10) },
+  { title: '통계와 보고서', items: links.slice(6, 11) },
+  { title: '가계부 관리', items: links.slice(11) },
 ]
 const primaryLinks = [links[0]!, links[1]!, links[4]!, links[6]!]
 function isActive(href: string) {
