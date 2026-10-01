@@ -2,7 +2,7 @@
 import type { RepaymentPlan, RepaymentRow } from '~/types/repayment'
 import { monthlyRepayments, paidFor, repaymentAmount, validateRepayments } from '~/utils/repayment'
 import { today, won } from '~/utils/accounting'
-const props = defineProps<{ plan: RepaymentPlan; busy: boolean }>()
+const props = defineProps<{ plan: RepaymentPlan; busy: boolean; linkedPayments?: string[] }>()
 const emit = defineEmits<{ save: [plan: RepaymentPlan]; cancel: [] }>()
 const draft = ref<RepaymentPlan>(JSON.parse(JSON.stringify(props.plan)))
 const start = ref(today().slice(0, 7)),
@@ -157,6 +157,7 @@ function save() {
             <span>{{ payment.date }} · {{ won(payment.amount) }}원</span>
             <button
               type="button"
+              :disabled="linkedPayments?.includes(payment.id)"
               class="text-button danger"
               @click="confirmRemoval = { row: row.id, payment: payment.id }"
             >

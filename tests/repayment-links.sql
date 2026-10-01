@@ -1,0 +1,42 @@
+\set ON_ERROR_STOP on
+begin;
+create schema link_test;
+create function link_test.ok(v boolean,label text) returns void language plpgsql as $$begin if v is distinct from true then raise exception 'FAIL %',label; end if;raise notice 'PASS %',label;end$$;
+create function link_test.reject(q text,label text) returns void language plpgsql as $$begin begin execute q;exception when others then raise notice 'PASS rejected %',label;return;end;raise exception 'FAIL accepted %',label;end$$;
+grant usage on schema link_test to authenticated,anon;
+grant execute on all functions in schema link_test to authenticated,anon;
+insert into auth.users(id) values('99999999-9999-4999-8999-999999999999');
+set local role authenticated;
+select set_config('request.jwt.claim.sub','99999999-9999-4999-8999-999999999999',true);
+do $$declare h uuid;plan uuid:=gen_random_uuid();r uuid:=gen_random_uuid();pid uuid:=gen_random_uuid();pid2 uuid:=gen_random_uuid();bank uuid;expense uuid;tid uuid;fid uuid:=gen_random_uuid(); rows jsonb;begin
+ h:=public.create_household('연결 시험');select id into bank from public.accounts where household_id=h and name='은행';select id into expense from public.accounts where household_id=h and type='EXPENSE' limit 1;
+ rows:=jsonb_build_array(jsonb_build_object('id',r,'due_date','2026-10-25','amount','1000','payments','[]'::jsonb));
+ perform public.save_repayment_plan(h,plan,0,'본인','',rows,false);
+ tid:=public.process_repayment_payment(h,plan,1,r,'pay',pid,'2020-01-01','400',expense,bank);
+ perform link_test.ok((select count(*)=1 from public.transactions where id=tid),'atomic transaction created');
+ perform link_test.ok((select repayment_plans.rows->0->'payments'->0->>'amount'='400' and revision=2 from public.repayment_plans where id=plan),'partial payment recorded');
+ perform link_test.reject(format('select public.process_repayment_payment(%L,%L,1,%L,''pay'',%L,''2020-01-01'',''400'',%L,%L)',h,plan,r,pid2,expense,bank),'stale revision');
+ perform link_test.reject(format('select public.process_repayment_payment(%L,%L,2,%L,''pay'',%L,''2020-01-01'',''700'',%L,%L)',h,plan,r,pid2,expense,bank),'overpayment');
+ perform link_test.ok((select count(*)=1 from public.transactions where household_id=h),'overpayment transaction rolled back');
+ perform link_test.reject(format('select public.save_repayment_plan(%L,%L,2,''本인'','''',%L,false)',h,plan,rows),'linked payment removal denied');
+ perform link_test.reject(format('select public.process_repayment_payment(%L,%L,2,%L,''link'',%L,null,null,%L,%L,%L)',h,plan,r,pid2,expense,bank,tid),'duplicate link');
+ perform public.process_repayment_payment(h,plan,2,r,'unlink',pid);
+ perform link_test.ok((select count(*)=1 from public.transactions where id=tid),'unlink preserves transaction');
+ perform link_test.ok((select repayment_plans.rows->0->'payments'='[]'::jsonb from public.repayment_plans where id=plan),'unlink removes payment');
+ perform public.process_repayment_payment(h,plan,3,r,'link',pid2,null,null,expense,bank,tid);
+ perform link_test.ok((select revision=4 from public.repayment_plans where id=plan),'existing transaction relinked');
+ perform link_test.ok(jsonb_array_length(public.get_repayment_links(h))=1,'links read');
+ perform public.save_fixed_expense(h,fid,0,date_trunc('month',current_date)::date,'변제 중복', '400',25,expense,bank);
+ perform link_test.reject(format('select public.process_fixed_expense(%L,%L,%L,1,0,''link'',null,null,%L)',h,fid,date_trunc('month',current_date)::date,tid),'fixed cannot reuse repayment transaction');
+ perform public.delete_transaction(tid,(select updated_at from public.transactions where id=tid));
+ perform link_test.reject(format('select public.process_repayment_payment(%L,%L,4,%L,''pay'',%L,''2020-01-01'',''100'',%L,%L)',h,plan,r,gen_random_uuid(),expense,bank),'deleted linked transaction blocks new payment');
+ perform link_test.ok((select revision=4 from public.repayment_plans where id=plan),'review rejection preserves schedule');
+ perform set_config('request.jwt.claim.sub','88888888-8888-4888-8888-888888888888',true);
+ perform link_test.ok(public.get_repayment_links(h)='[]'::jsonb,'outsider cannot read links');
+ perform link_test.reject(format('select public.process_repayment_payment(%L,%L,4,%L,''unlink'',%L)',h,plan,r,pid2),'outsider cannot unlink');
+ perform set_config('request.jwt.claim.sub','99999999-9999-4999-8999-999999999999',true);
+
+ perform link_test.reject('select private.save_repayment_plan_base(null,null,0,null,null,null,false)','private bypass denied');
+ set constraints all immediate;
+end$$;
+rollback;

@@ -45,6 +45,7 @@ watch(month, (value) => {
       </div>
     </div>
   </section>
+  <UpcomingPayments />
   <section class="dashboard-grid">
     <div class="panel">
       <div class="section-title">
