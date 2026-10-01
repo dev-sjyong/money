@@ -76,7 +76,10 @@ test('fixed expense forecast, actual posting, linking, reset, skip, version chan
     else if (path.endsWith('/fixed_expense_snapshot'))
       result =
         args.p_household === hid ? state : { templates: [], records: [], linked_transactions: [] }
-    else if (path.endsWith('/save_fixed_expense')) {
+    else if (path.endsWith('/delete_fixed_expense')) {
+      state.templates = state.templates.filter((t) => t.id !== args.p_id)
+      result = null
+    } else if (path.endsWith('/save_fixed_expense')) {
       const rule: FixedRule = {
         effective_month: args.p_effective_month,
         title: args.p_title,
@@ -243,6 +246,16 @@ test('fixed expense forecast, actual posting, linking, reset, skip, version chan
     .click()
   await expect(page.getByLabel('적용 시작 월')).toHaveValue(next)
   await page.getByRole('button', { name: '편집 취소' }).click()
+  const management = page.locator('.fixed-management').filter({ hasText: '다음달 보험' })
+  await management.getByRole('button', { name: '항목 삭제', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('기존 납부 거래')
+  await page.getByRole('button', { name: '삭제 취소', exact: true }).click()
+  await expect(management).toHaveCount(1)
+  await management.getByRole('button', { name: '항목 삭제', exact: true }).click()
+  await page.getByRole('button', { name: '항목 삭제 확인', exact: true }).click()
+  await expect(management).toHaveCount(0)
+  await page.reload()
+  await expect(management).toHaveCount(0)
   await page.getByLabel('함께 쓰는 가계부').selectOption(other)
   await expect(card).toHaveCount(0)
   expect(errors).toEqual([])
