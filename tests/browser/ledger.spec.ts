@@ -105,7 +105,10 @@ test('complete household journey, accounting inputs, reports, persistence reload
     else if (url.pathname.includes('/rpc/')) {
       const name = url.pathname.split('/').pop()!
       calls.push({ name, args })
-      if (name === 'get_transaction_history')
+      if (name === 'get_repayment_plans' || name === 'get_repayment_links') result = []
+      else if (name === 'fixed_expense_snapshot')
+        result = { templates: [], records: [], linked_transactions: [] }
+      else if (name === 'get_transaction_history')
         result = history.filter((h) => h.transaction_id === args.p_transaction)
       else if (name === 'get_transaction_trash') result = trash
       else if (name === 'restore_transaction') {

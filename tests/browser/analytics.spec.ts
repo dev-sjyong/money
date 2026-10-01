@@ -92,6 +92,8 @@ test('analytics comparisons, split-category drilldown, CSV, asset dates, trends 
         { id: hid, name: '우리집', created_by: uid },
         { id: other, name: '별도 가계부', created_by: uid },
       ]
+    else if (path.endsWith('/fixed_expense_snapshot'))
+      result = { templates: [], records: [], linked_transactions: [] }
     else if (path.endsWith('/ledger_snapshot'))
       result = {
         accounts: args.p_household === hid ? accounts : [],

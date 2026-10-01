@@ -34,6 +34,8 @@ test('two variable plans, partial payment, conflict recovery, archive and mobile
       }
     else if (path === '/auth/v1/user') result = user
     else if (path === '/rest/v1/households') result = [{ id: hid, name: '우리집', created_by: uid }]
+    else if (path.endsWith('/fixed_expense_snapshot'))
+      result = { templates: [], records: [], linked_transactions: [] }
     else if (path.endsWith('/ledger_snapshot'))
       result = {
         accounts: [],
@@ -111,7 +113,10 @@ test('two variable plans, partial payment, conflict recovery, archive and mobile
     animations: 'disabled',
   })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-  await page.getByRole('region', { name: '본인 변제 계획' }).getByRole('button').click()
+  await page
+    .getByRole('region', { name: '본인 변제 계획' })
+    .getByRole('button', { name: '일정 수정 · 납부 기록', exact: true })
+    .click()
   await page.getByRole('button', { name: '납부 기록 삭제', exact: true }).click()
   await page.getByRole('button', { name: '삭제 확인', exact: true }).click()
   conflict = true
@@ -122,7 +127,10 @@ test('two variable plans, partial payment, conflict recovery, archive and mobile
   await page.getByRole('button', { name: '변경 버리기', exact: true }).click()
   await page.getByRole('button', { name: '일정 새로고침' }).click()
   await expect(page.getByRole('region', { name: '본인 변제 계획' })).toContainText('200,000원')
-  await page.getByRole('region', { name: '배우자 변제 계획' }).getByRole('button').click()
+  await page
+    .getByRole('region', { name: '배우자 변제 계획' })
+    .getByRole('button', { name: '일정 수정 · 납부 기록', exact: true })
+    .click()
   await page.getByLabel('계획 보관 (합계에서 제외)', { exact: true }).check()
   await page.setViewportSize({ width: 320, height: 812 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

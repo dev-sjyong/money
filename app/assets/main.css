@@ -2085,3 +2085,47 @@ textarea:focus-visible {
     bottom: calc(74px + env(safe-area-inset-bottom));
   }
 }
+.upcoming-panel {
+  margin-bottom: 24px;
+}
+.upcoming-panel > .money {
+  font-size: 30px;
+}
+.upcoming-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.upcoming-grid ul,
+.payment-links {
+  list-style: none;
+  padding: 0;
+}
+.upcoming-grid li,
+.payment-links li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.upcoming-grid small {
+  display: block;
+  color: var(--muted);
+}
+.repayment-posting {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+.repayment-posting summary {
+  cursor: pointer;
+  min-height: 44px;
+  font-weight: 600;
+}
+@media (max-width: 760px) {
+  .upcoming-grid {
+    grid-template-columns: 1fr;
+  }
+}
