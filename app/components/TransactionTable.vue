@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { Transaction } from '~/types/ledger'
 import { won } from '~/utils/accounting'
-defineProps<{ items: Transaction[] }>()
+defineProps<{ items: Transaction[]; emptyText?: string }>()
 const { label } = useAccounts()
+const { preferences, toggleFavorite } = useWorkflowPreferences()
 </script>
 <template>
   <div class="table-wrap">
@@ -43,6 +44,15 @@ const { label } = useAccounts()
             }}<small> 원</small>
           </td>
           <td class="transaction-row-actions">
+            <button
+              v-if="!t.is_opening"
+              class="text-button"
+              :aria-label="t.description + ' 즐겨찾기'"
+              :aria-pressed="preferences.favorites.some((f) => f.id === t.id)"
+              @click="toggleFavorite(t)"
+            >
+              {{ preferences.favorites.some((f) => f.id === t.id) ? '★' : '☆' }}
+            </button>
             <NuxtLink
               v-if="!t.is_opening"
               :to="`/transactions/new?copy=${t.id}`"
@@ -56,7 +66,9 @@ const { label } = useAccounts()
           </td>
         </tr>
         <tr v-if="!items.length">
-          <td colspan="5" class="empty-text">아직 거래가 없어요. 첫 기록을 남겨 보세요.</td>
+          <td colspan="5" class="empty-text">
+            {{ emptyText || '아직 거래가 없어요. 첫 기록을 남겨 보세요.' }}
+          </td>
         </tr>
       </tbody>
     </table>

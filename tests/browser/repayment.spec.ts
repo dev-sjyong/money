@@ -97,7 +97,9 @@ test('two variable plans, partial payment, conflict recovery, archive and mobile
   await page.getByLabel('실제 납부금액', { exact: true }).fill('200000')
   await page.getByRole('button', { name: '납부 기록 반영' }).click()
   await page.getByRole('button', { name: '일정 저장', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('저장했어요')
+  await expect(page.getByRole('status').filter({ hasText: '저장했어요' })).toContainText(
+    '저장했어요',
+  )
   await expect(page.getByRole('region', { name: '본인 변제 계획' })).toContainText('1,100,000원')
   await add('배우자', month, '600000')
   await page.getByRole('button', { name: '일정 저장', exact: true }).click()

@@ -2129,3 +2129,34 @@ textarea:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+.filter-details {
+  margin: 16px 0;
+  padding: 16px;
+  background: #f5f6f2;
+  border-radius: 8px;
+}
+.filter-details summary {
+  cursor: pointer;
+  min-height: 44px;
+  font-weight: 600;
+}
+.reconciliation-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.reconciliation-row p {
+  margin: 6px 0;
+}
+@media (max-width: 760px) {
+  .reconciliation-row {
+    grid-template-columns: 1fr;
+  }
+  .recent-copy .split {
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+}

@@ -409,6 +409,8 @@ test('complete household journey, accounting inputs, reports, persistence reload
     true,
   )
   await page.getByRole('button', { name: '거래 저장 →' }).click()
+  await expect(page.getByRole('alert')).toContainText('중복 기록')
+  await page.getByRole('button', { name: '확인하고 별도 거래 저장' }).click()
   await expect(page.getByRole('link', { name: '분개 복사', exact: true })).toBeVisible()
   expect(state.transactions.find((t) => t.description === '분개 복사')!.lines[0]!.memo).toBe(
     '복사해도 남을 메모',
